@@ -35,47 +35,65 @@ function parseCsvToObjects(lines) {
 
 export function parseIBKRCsv(csvText) {
   const sections = {};
-  const lines = csvText.split('\n');
-  let currentSection = null;
-  let currentLines = [];
+  const rawLines = csvText.split('\n');
 
-  for (const line of lines) {
+  // Parse sections — IBKR format: "SectionName,Header/Data,col1,col2,..."
+  for (const line of rawLines) {
     const firstComma = line.indexOf(',');
-    const header = firstComma >= 0 ? line.substring(0, firstComma).trim() : line.trim();
-    if (!header) continue;
+    if (firstComma < 0) continue;
+    const sectionName = line.substring(0, firstComma).trim();
+    const rest = line.substring(firstComma + 1);
+    if (!sectionName) continue;
+    if (!sections[sectionName]) sections[sectionName] = [];
+    sections[sectionName].push(rest);
+  }
 
-    if (header !== currentSection) {
-      if (currentSection && currentLines.length > 1) {
-        sections[currentSection] = currentLines;
+  // For each section, filter to only Data rows and remove the Data/Header discriminator
+  function getDataRows(sectionLines) {
+    if (!sectionLines) return [];
+    const header = sectionLines.find(l => l.startsWith('Header,'));
+    const dataRows = sectionLines.filter(l => l.startsWith('Data,'));
+    if (!header) return [];
+    const headerCols = parseCsvLine(header).slice(1); // remove "Header"
+    return dataRows.map(row => {
+      const cols = parseCsvLine(row).slice(1); // remove "Data"
+      const obj = {};
+      headerCols.forEach((h, i) => { obj[h] = cols[i] || ''; });
+      return obj;
+    });
+  }
+
+  const positions = getDataRows(sections['Open Positions']);
+  const trades = getDataRows(sections['Trades']);
+
+  // Total deposited: look for "Total in USD" row in Deposits & Withdrawals
+  const depositLines = sections['Deposits & Withdrawals'] || [];
+  let totalDeposited = 0;
+  for (const line of depositLines) {
+    if (line.includes('Total in USD')) {
+      const cols = parseCsvLine(line);
+      const amount = parseFloat(cols[cols.length - 1]);
+      if (!isNaN(amount) && amount > 0) {
+        totalDeposited += amount;
+        break;
       }
-      currentSection = header;
-      currentLines = [line.substring(firstComma + 1)];
-    } else {
-      currentLines.push(line.substring(firstComma + 1));
     }
   }
-  if (currentSection && currentLines.length > 1) {
-    sections[currentSection] = currentLines;
-  }
 
-  const positions = parseCsvToObjects(sections['Open Positions'] || sections['Positions'] || []);
-  const trades = parseCsvToObjects(sections['Trades'] || []);
-  const deposits = parseCsvToObjects(sections['Deposits & Withdrawals'] || sections['Cash Transactions'] || []);
-
-  return { positions, trades, deposits };
+  return { positions, trades, totalDeposited };
 }
 
 export function extractPositions(rawPositions) {
   return rawPositions
-    .filter(row => row['Symbol'] && row['Symbol'] !== 'Symbol')
+    .filter(row => row['Symbol'] && row['Symbol'] !== 'Symbol' && row['DataDiscriminator'] === 'Summary')
     .map(row => ({
       symbol: row['Symbol']?.trim(),
-      quantity: parseFloat(row['Quantity'] || row['Pos'] || 0),
-      avgCost: parseFloat(row['Average Cost'] || row['Avg Cost'] || row['Cost Price'] || 0),
-      marketValue: parseFloat(row['Market Value'] || 0),
-      unrealizedPnl: parseFloat(row['Unrealized P&L'] || row['Unrealized PNL'] || 0),
+      quantity: parseFloat(row['Quantity'] || 0),
+      avgCost: parseFloat(row['Cost Price'] || 0),
+      marketValue: parseFloat(row['Value'] || 0),
+      unrealizedPnl: parseFloat(row['Unrealized P/L'] || 0),
       currency: row['Currency']?.trim() || 'USD',
-      assetClass: row['Asset Class'] || row['Type'] || 'STK',
+      assetClass: row['Asset Category'] || 'Stocks',
     }))
     .filter(p => p.symbol && p.quantity !== 0);
 }
@@ -95,16 +113,4 @@ export function extractTrades(rawTrades) {
       buySell: row['Buy/Sell']?.trim() || (parseFloat(row['Quantity']) > 0 ? 'BUY' : 'SELL'),
     }))
     .sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
-}
-
-export function extractTotalDeposited(rawDeposits) {
-  return rawDeposits
-    .filter(row => {
-      const desc = (row['Description'] || row['Type'] || '').toLowerCase();
-      return desc.includes('deposit') || desc.includes('transfer') || desc.includes('wire');
-    })
-    .reduce((sum, row) => {
-      const amount = parseFloat(row['Amount'] || 0);
-      return sum + (amount > 0 ? amount : 0);
-    }, 0);
 }

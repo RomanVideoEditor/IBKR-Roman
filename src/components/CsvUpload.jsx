@@ -1,6 +1,6 @@
 // src/components/CsvUpload.jsx
 import { useState, useRef } from 'react';
-import { parseIBKRCsv, extractPositions, extractTrades, extractTotalDeposited } from '../utils/parseIBKR';
+import { parseIBKRCsv, extractPositions, extractTrades } from '../utils/parseIBKR';
 import { savePortfolio } from '../utils/firestore';
 import { useAuth } from '../hooks/useAuth';
 
@@ -20,10 +20,9 @@ export default function CsvUpload({ onUploaded }) {
     setError('');
     try {
       const text = await file.text();
-      const { positions: rawPos, trades: rawTrades, deposits: rawDeposits } = parseIBKRCsv(text);
+      const { positions: rawPos, trades: rawTrades, totalDeposited } = parseIBKRCsv(text);
       const positions = extractPositions(rawPos);
       const trades = extractTrades(rawTrades);
-      const totalDeposited = extractTotalDeposited(rawDeposits);
 
       if (positions.length === 0) {
         setError('No positions found. Make sure this is an IBKR Activity Statement CSV.');
