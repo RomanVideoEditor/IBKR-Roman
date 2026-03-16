@@ -5,7 +5,7 @@ Real-time portfolio tracker for Interactive Brokers — upload your CSV, see liv
 ## Features
 - 🔐 Google Login / Email Auth (Firebase)
 - 📂 Upload IBKR Activity Statement CSV
-- 💹 Live prices (Yahoo Finance, 15min delay, no API key needed)
+- 💹 Live prices (Yahoo Finance, 15min delay, no API key needed) 
 - 📊 Positions with real-time P&L
 - 📋 Trade history
 - ☁️ Saved to cloud — access from anywhere
