@@ -20,7 +20,7 @@ export default function CsvUpload({ onUploaded }) {
     setError('');
     try {
       const text = await file.text();
-      const { positions: rawPos, trades: rawTrades, totalDeposited } = parseIBKRCsv(text);
+      const { positions: rawPos, trades: rawTrades, totalDeposited, periodEnd } = parseIBKRCsv(text);
       const positions = extractPositions(rawPos);
       const trades = extractTrades(rawTrades);
 
@@ -32,9 +32,13 @@ export default function CsvUpload({ onUploaded }) {
 
       setStatus('Saving to cloud...');
       const uploadedAt = new Date();
-      await savePortfolio(user.uid, { positions, trades, totalDeposited, uploadedAt });
-      setStatus(`✓ ${positions.length} positions loaded`);
-      onUploaded({ positions, trades, totalDeposited, uploadedAt });
+      const result = await savePortfolio(user.uid, { positions, trades, totalDeposited, periodEnd, uploadedAt });
+      
+      const msg = result.isNewer 
+        ? `✓ ${positions.length} positions updated` 
+        : `✓ Trades merged (positions unchanged — older file)`;
+      setStatus(msg);
+      onUploaded({ positions, trades, totalDeposited: result.totalDepositedAll, uploadedAt });
     } catch (err) {
       setError('Failed to parse file: ' + err.message);
       setStatus('');
@@ -64,7 +68,7 @@ export default function CsvUpload({ onUploaded }) {
       <div className="upload-sub">
         {error
           ? <span className="error-msg">{error}</span>
-          : 'Drag & drop or click — Activity Statement CSV'}
+          : 'Drag & drop or click — כל סדר העלאה תקין'}
       </div>
     </div>
   );
