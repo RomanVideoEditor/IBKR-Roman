@@ -1,10 +1,11 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { loadPortfolio, loadTrades } from '../utils/firestore';
+import { loadPortfolio, loadTrades, loadNav } from '../utils/firestore';
 import CsvUpload from '../components/CsvUpload';
 import PositionsTable from '../components/PositionsTable';
 import TradesHistory from '../components/TradesHistory';
+import PerformanceChart from '../components/PerformanceChart';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -13,6 +14,7 @@ export default function Dashboard() {
   const [cashBalance, setCashBalance] = useState(0);
   const [trades, setTrades] = useState([]);
   const [totalDeposited, setTotalDeposited] = useState(0);
+  const [navPoints, setNavPoints] = useState([]);
   const [uploadedAt, setUploadedAt] = useState(null);
   const [loadingData, setLoadingData] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
@@ -20,26 +22,29 @@ export default function Dashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [p, t] = await Promise.all([loadPortfolio(user.uid), loadTrades(user.uid)]);
-        if (p) {
-          setPortfolio(p.positions);
-          setCashBalance(p.cashBalance || 0);
-          setTotalDeposited(p.totalDeposited || 0);
-          setUploadedAt(p.uploadedAt);
-        }
+        const [p, t, n] = await Promise.all([
+          loadPortfolio(user.uid),
+          loadTrades(user.uid),
+          loadNav(user.uid),
+        ]);
+        if (p) { setPortfolio(p.positions); setCashBalance(p.cashBalance || 0); setTotalDeposited(p.totalDeposited || 0); setUploadedAt(p.uploadedAt); }
         if (t) setTrades(t.trades || []);
+        if (n) setNavPoints(n.points || []);
       } catch (e) { console.error(e); }
       finally { setLoadingData(false); }
     }
     load();
   }, [user.uid]);
 
-  const handleUploaded = ({ positions, cashBalance, totalDeposited, uploadedAt }) => {
+  const handleUploaded = async ({ positions, cashBalance, totalDeposited, uploadedAt }) => {
     setPortfolio(positions);
     setCashBalance(cashBalance || 0);
     setTotalDeposited(totalDeposited || 0);
     setUploadedAt(uploadedAt.toISOString());
     setShowUpload(false);
+    // Reload nav points
+    const n = await loadNav(user.uid);
+    if (n) setNavPoints(n.points || []);
   };
 
   return (
@@ -57,6 +62,7 @@ export default function Dashboard() {
             <div className="dash-toolbar">
               <div className="tabs">
                 <button className={tab === 'positions' ? 'tab active' : 'tab'} onClick={() => setTab('positions')}>Positions</button>
+                <button className={tab === 'performance' ? 'tab active' : 'tab'} onClick={() => setTab('performance')}>Performance</button>
                 <button className={tab === 'trades' ? 'tab active' : 'tab'} onClick={() => setTab('trades')}>Trade History</button>
               </div>
               <div className="toolbar-right">
@@ -75,6 +81,7 @@ export default function Dashboard() {
             ) : (
               <>
                 {tab === 'positions' && <PositionsTable positions={portfolio} cashBalance={cashBalance} totalDeposited={totalDeposited} />}
+                {tab === 'performance' && <PerformanceChart navPoints={navPoints} />}
                 {tab === 'trades' && <TradesHistory trades={trades} />}
               </>
             )}

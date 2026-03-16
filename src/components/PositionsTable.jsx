@@ -14,29 +14,30 @@ function fmtPnl(n) {
 function getMarketStatus() {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const et = new Date(utc + 3600000 * -5);
+  const et = new Date(utc - 5 * 3600000);
   const day = et.getDay();
   const time = et.getHours() * 60 + et.getMinutes();
-  if (day === 0 || day === 6) return { status: 'closed', label: 'Closed — Weekend', color: '#545870' };
-  if (time >= 240 && time < 570) return { status: 'pre', label: '🟡 Pre-Market (4:00–9:30 ET)', color: '#f59e0b' };
-  if (time >= 570 && time < 960) return { status: 'open', label: '🟢 Market Open', color: '#00d4a0' };
-  if (time >= 960 && time < 1200) return { status: 'after', label: '🟡 After-Hours (16:00–20:00 ET)', color: '#f59e0b' };
-  return { status: 'closed', label: '🔴 Market Closed', color: '#545870' };
+  if (day === 0 || day === 6) return { label: 'Closed — Weekend', color: '#545870' };
+  if (time >= 240 && time < 570) return { label: 'Pre-Market (4:00–9:30 ET)', color: '#f59e0b' };
+  if (time >= 570 && time < 960) return { label: 'Market Open', color: '#00d4a0' };
+  if (time >= 960 && time < 1200) return { label: 'After-Hours (16:00–20:00 ET)', color: '#f59e0b' };
+  return { label: 'Market Closed', color: '#545870' };
 }
 
 function getCountdown() {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const et = new Date(utc + 3600000 * -5);
+  const et = new Date(utc - 5 * 3600000);
   const day = et.getDay();
   const time = et.getHours() * 60 + et.getMinutes();
   if (day >= 1 && day <= 5 && time >= 570 && time < 960) return null;
   let next = new Date(et);
   next.setHours(9, 30, 0, 0);
-  if (time >= 570 || day === 0 || day === 6) {
+  if (time >= 570) {
     do { next.setDate(next.getDate() + 1); } while (next.getDay() === 0 || next.getDay() === 6);
     next.setHours(9, 30, 0, 0);
-  }
+  } else if (day === 0) { next.setDate(next.getDate() + 1); next.setHours(9, 30, 0, 0); }
+  else if (day === 6) { next.setDate(next.getDate() + 2); next.setHours(9, 30, 0, 0); }
   const diff = next - et;
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
@@ -53,8 +54,9 @@ function MarketBar() {
   }, []);
   return (
     <div className="market-status-bar">
+      <span className="market-dot" style={{ background: status.color }} />
       <span className="market-label" style={{ color: status.color }}>{status.label}</span>
-      {countdown && <span className="market-countdown">פתיחה בעוד {countdown}</span>}
+      {countdown && <span className="market-countdown">Opens in {countdown}</span>}
     </div>
   );
 }
@@ -84,22 +86,23 @@ export default function PositionsTable({ positions, cashBalance, totalDeposited 
   const enriched = positions.map(p => {
     const data = prices[p.symbol];
     const livePrice = data?.price || null;
-    const prePost = data?.prePost;
+    // dayChangePct = change from previous close (works during pre/after/regular hours)
+    const dayChangePct = data?.dayChangePct ?? null;
     const liveValue = livePrice ? livePrice * p.quantity : p.marketValue;
     const livePnl = livePrice ? (livePrice - p.avgCost) * p.quantity : p.unrealizedPnl;
     const pnlPct = p.avgCost ? ((livePrice || p.avgCost) - p.avgCost) / p.avgCost * 100 : 0;
-    return { ...p, livePrice, liveValue, livePnl, pnlPct, prePost };
+    return { ...p, livePrice, liveValue, livePnl, pnlPct, dayChangePct };
   });
 
   const totalStocksValue = enriched.reduce((s, p) => s + (p.liveValue || 0), 0);
-  const totalValue = totalStocksValue + (cashBalance || 0);
+  const cash = cashBalance || 0;
+  const totalValue = totalStocksValue + cash;
+  const cashWeight = totalValue > 0 ? (cash / totalValue) * 100 : 0;
 
   const withWeight = enriched.map(p => ({
     ...p,
     weight: totalValue > 0 ? (p.liveValue / totalValue) * 100 : 0,
   }));
-
-  const cashWeight = totalValue > 0 ? (cashBalance / totalValue) * 100 : 0;
 
   const sorted = [...withWeight].sort((a, b) => {
     const av = a[sortKey]; const bv = b[sortKey];
@@ -124,23 +127,23 @@ export default function PositionsTable({ positions, cashBalance, totalDeposited 
             <span className="summary-label">Unrealized P&L</span>
             <span className={`summary-value ${totalPnl >= 0 ? 'positive' : 'negative'}`}>{fmtPnl(totalPnl)}</span>
           </div>
-          {totalDeposited > 0 && <>
+          {totalDeposited > 0 && (
             <div className="summary-item">
               <span className="summary-label">Total Deposited</span>
               <span className="summary-value">${fmt(totalDeposited)}</span>
             </div>
-            {totalReturn !== null && (
-              <div className="summary-item">
-                <span className="summary-label">Total Return</span>
-                <span className={`summary-value ${totalReturn >= 0 ? 'positive' : 'negative'}`}>
-                  {totalReturn >= 0 ? '+' : ''}{fmt(totalReturn)}%
-                </span>
-              </div>
-            )}
-          </>}
+          )}
+          {totalReturn !== null && (
+            <div className="summary-item">
+              <span className="summary-label">Total Return</span>
+              <span className={`summary-value ${totalReturn >= 0 ? 'positive' : 'negative'}`}>
+                {totalReturn >= 0 ? '+' : ''}{fmt(totalReturn)}%
+              </span>
+            </div>
+          )}
           <div className="summary-item">
             <span className="summary-label">Cash</span>
-            <span className="summary-value">${fmt(cashBalance)}</span>
+            <span className="summary-value">${fmt(cash)}</span>
           </div>
           <div className="summary-item">
             <span className="summary-label">Positions</span>
@@ -177,9 +180,9 @@ export default function PositionsTable({ positions, cashBalance, totalDeposited 
                   {p.livePrice ? (
                     <span>
                       ${fmt(p.livePrice)}
-                      {p.prePost != null && p.prePost !== 0 && (
-                        <span className={`ext-price ${p.prePost >= 0 ? 'positive' : 'negative'}`}>
-                          {' '}({p.prePost >= 0 ? '+' : ''}{fmt(p.prePost, 2)}%)
+                      {p.dayChangePct != null && (
+                        <span className={`ext-price ${p.dayChangePct >= 0 ? 'positive' : 'negative'}`}>
+                          {' '}({p.dayChangePct >= 0 ? '+' : ''}{fmt(p.dayChangePct, 2)}%)
                         </span>
                       )}
                     </span>
@@ -200,17 +203,11 @@ export default function PositionsTable({ positions, cashBalance, totalDeposited 
                 </td>
               </tr>
             ))}
-            {/* Cash row */}
-            {cashBalance > 0 && (
+            {cash > 0 && (
               <tr className="cash-row">
-                <td className="symbol-cell">
-                  <span className="symbol">CASH</span>
-                  <span className="asset-class">USD</span>
-                </td>
-                <td>—</td>
-                <td>—</td>
-                <td>—</td>
-                <td>${fmt(cashBalance)}</td>
+                <td className="symbol-cell"><span className="symbol">CASH</span><span className="asset-class">USD</span></td>
+                <td>—</td><td>—</td><td>—</td>
+                <td>${fmt(cash)}</td>
                 <td>
                   <div className="weight-cell">
                     <span>{fmt(cashWeight, 1)}%</span>
@@ -219,8 +216,7 @@ export default function PositionsTable({ positions, cashBalance, totalDeposited 
                     </div>
                   </div>
                 </td>
-                <td>—</td>
-                <td>—</td>
+                <td>—</td><td>—</td>
               </tr>
             )}
           </tbody>

@@ -2,48 +2,54 @@
 import { db } from '../firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
-export async function savePortfolio(userId, { positions, trades, cashBalance, totalDeposited, periodEnd, uploadedAt }) {
+export async function savePortfolio(userId, data) {
+  const { positions, trades, cashBalance, totalDeposited, depositRows, periodStart, periodEnd, navStart, navEnd, twr, uploadedAt } = data;
+
+  const newPeriodEnd = periodEnd ? periodEnd.toISOString() : uploadedAt.toISOString();
+  const newPeriodStart = periodStart ? periodStart.toISOString() : newPeriodEnd;
+
+  // Positions — only overwrite if newer
   const posRef = doc(db, 'users', userId, 'portfolios', 'current');
   const existing = await getDoc(posRef);
-
-  const existingPeriodEnd = existing.exists() ? existing.data().periodEnd : null;
-  const newPeriodEnd = periodEnd ? periodEnd.toISOString() : uploadedAt.toISOString();
-  const isNewer = !existingPeriodEnd || new Date(newPeriodEnd) >= new Date(existingPeriodEnd);
-
+  const existingEnd = existing.exists() ? existing.data().periodEnd : null;
+  const isNewer = !existingEnd || new Date(newPeriodEnd) >= new Date(existingEnd);
   if (isNewer) {
-    await setDoc(posRef, {
-      positions,
-      cashBalance: cashBalance || 0,
-      periodEnd: newPeriodEnd,
-      uploadedAt: uploadedAt.toISOString(),
-    });
+    await setDoc(posRef, { positions, cashBalance: cashBalance || 0, periodEnd: newPeriodEnd, uploadedAt: uploadedAt.toISOString() });
   }
 
-  // Deposits: accumulate, no duplicates per period
-  const depositsRef = doc(db, 'users', userId, 'portfolios', 'deposits');
-  const existingDep = await getDoc(depositsRef);
-  let allDeposits = existingDep.exists() ? (existingDep.data().deposits || []) : [];
+  // Deposits — accumulate per period, no duplicates
+  const depRef = doc(db, 'users', userId, 'portfolios', 'deposits');
+  const depSnap = await getDoc(depRef);
+  let allDeposits = depSnap.exists() ? (depSnap.data().deposits || []) : [];
   const depKey = newPeriodEnd.substring(0, 10);
   if (!allDeposits.find(d => d.periodEnd === depKey) && totalDeposited > 0) {
-    allDeposits.push({ periodEnd: depKey, amount: totalDeposited });
+    allDeposits.push({ periodEnd: depKey, periodStart: newPeriodStart.substring(0, 10), amount: totalDeposited, rows: depositRows || [] });
   }
   const totalDepositedAll = allDeposits.reduce((s, d) => s + d.amount, 0);
-  await setDoc(depositsRef, { deposits: allDeposits, total: totalDepositedAll });
+  await setDoc(depRef, { deposits: allDeposits, total: totalDepositedAll });
 
-  // Trades: merge, no duplicates
+  // NAV snapshots — for graph
+  const navRef = doc(db, 'users', userId, 'portfolios', 'nav');
+  const navSnap = await getDoc(navRef);
+  let navPoints = navSnap.exists() ? (navSnap.data().points || []) : [];
+  if (!navPoints.find(p => p.periodEnd === depKey)) {
+    navPoints.push({ periodStart: newPeriodStart.substring(0, 10), periodEnd: depKey, navStart, navEnd, twr, deposits: totalDeposited });
+  }
+  navPoints.sort((a, b) => new Date(a.periodEnd) - new Date(b.periodEnd));
+  await setDoc(navRef, { points: navPoints });
+
+  // Trades — merge, no duplicates
   if (trades && trades.length > 0) {
-    const tradesRef = doc(db, 'users', userId, 'portfolios', 'trades');
-    const existingTrades = await getDoc(tradesRef);
+    const trRef = doc(db, 'users', userId, 'portfolios', 'trades');
+    const trSnap = await getDoc(trRef);
     let allTrades = trades;
-    if (existingTrades.exists()) {
-      const prevTrades = existingTrades.data().trades || [];
-      const existingKeys = new Set(prevTrades.map(t => `${t.symbol}_${t.dateTime}_${t.quantity}`));
-      const newTrades = trades.filter(t => !existingKeys.has(`${t.symbol}_${t.dateTime}_${t.quantity}`));
-      allTrades = [...prevTrades, ...newTrades].sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
+    if (trSnap.exists()) {
+      const prev = trSnap.data().trades || [];
+      const keys = new Set(prev.map(t => `${t.symbol}_${t.dateTime}_${t.quantity}`));
+      allTrades = [...prev, ...trades.filter(t => !keys.has(`${t.symbol}_${t.dateTime}_${t.quantity}`))];
+      allTrades.sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
     }
-    await setDoc(doc(db, 'users', userId, 'portfolios', 'trades'), {
-      trades: allTrades, updatedAt: uploadedAt.toISOString()
-    });
+    await setDoc(trRef, { trades: allTrades, updatedAt: uploadedAt.toISOString() });
   }
 
   return { isNewer, totalDepositedAll };
@@ -55,15 +61,15 @@ export async function loadPortfolio(userId) {
     getDoc(doc(db, 'users', userId, 'portfolios', 'deposits')),
   ]);
   if (!posSnap.exists()) return null;
-  return {
-    ...posSnap.data(),
-    totalDeposited: depSnap.exists() ? depSnap.data().total : 0,
-  };
+  return { ...posSnap.data(), totalDeposited: depSnap.exists() ? depSnap.data().total : 0 };
 }
 
 export async function loadTrades(userId) {
-  const ref = doc(db, 'users', userId, 'portfolios', 'trades');
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
-  return snap.data();
+  const snap = await getDoc(doc(db, 'users', userId, 'portfolios', 'trades'));
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function loadNav(userId) {
+  const snap = await getDoc(doc(db, 'users', userId, 'portfolios', 'nav'));
+  return snap.exists() ? snap.data() : null;
 }

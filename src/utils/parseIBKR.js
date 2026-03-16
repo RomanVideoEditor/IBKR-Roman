@@ -16,39 +16,55 @@ function parseCsvLine(line) {
 
 export function parseIBKRCsv(csvText) {
   const sections = {};
-  const rawLines = csvText.split('\n');
-
-  for (const line of rawLines) {
-    const firstComma = line.indexOf(',');
-    if (firstComma < 0) continue;
-    const sectionName = line.substring(0, firstComma).trim();
-    const rest = line.substring(firstComma + 1);
-    if (!sectionName) continue;
-    if (!sections[sectionName]) sections[sectionName] = [];
-    sections[sectionName].push(rest);
+  for (const line of csvText.split('\n')) {
+    const fc = line.indexOf(',');
+    if (fc < 0) continue;
+    const name = line.substring(0, fc).trim();
+    const rest = line.substring(fc + 1);
+    if (!name) continue;
+    if (!sections[name]) sections[name] = [];
+    sections[name].push(rest);
   }
 
-  function getDataRows(sectionLines) {
-    if (!sectionLines) return [];
-    const header = sectionLines.find(l => l.startsWith('Header,'));
-    const dataRows = sectionLines.filter(l => l.startsWith('Data,'));
+  function getDataRows(lines) {
+    if (!lines) return [];
+    const header = lines.find(l => l.startsWith('Header,'));
     if (!header) return [];
-    const headerCols = parseCsvLine(header).slice(1);
-    return dataRows.map(row => {
-      const cols = parseCsvLine(row).slice(1);
+    const cols = parseCsvLine(header).slice(1);
+    return lines.filter(l => l.startsWith('Data,')).map(row => {
+      const vals = parseCsvLine(row).slice(1);
       const obj = {};
-      headerCols.forEach((h, i) => { obj[h] = cols[i] || ''; });
+      cols.forEach((h, i) => { obj[h] = vals[i] || ''; });
       return obj;
     });
   }
 
-  // Period end date
-  let periodEnd = null;
-  const stmtLines = sections['Statement'] || [];
-  for (const line of stmtLines) {
+  // Period dates
+  let periodStart = null, periodEnd = null;
+  for (const line of (sections['Statement'] || [])) {
     if (line.includes('Period')) {
-      const match = line.match(/(\w+ \d+, \d{4})\s*["']?\s*$/);
-      if (match) periodEnd = new Date(match[1]);
+      const matches = [...line.matchAll(/(\w+ \d+, \d{4})/g)];
+      if (matches.length >= 2) {
+        periodStart = new Date(matches[0][1]);
+        periodEnd = new Date(matches[1][1]);
+      } else if (matches.length === 1) {
+        periodEnd = new Date(matches[0][1]);
+      }
+    }
+  }
+
+  // NAV data
+  let navStart = 0, navEnd = 0, twr = 0;
+  for (const line of (sections['Net Asset Value'] || [])) {
+    if (line.includes('Total') && line.startsWith('Data,')) {
+      const cols = parseCsvLine(line).slice(1);
+      navStart = parseFloat(cols[1]) || 0;
+      navEnd = parseFloat(cols[3]) || 0;
+    }
+    if (line.startsWith('Data,') && line.includes('%')) {
+      const cols = parseCsvLine(line).slice(1);
+      const twrStr = cols[0] || cols[1] || '';
+      twr = parseFloat(twrStr.replace('%', '')) || 0;
     }
   }
 
@@ -58,59 +74,67 @@ export function parseIBKRCsv(csvText) {
   // Trades
   const trades = getDataRows(sections['Trades']);
 
-  // Cash — from Cash Report "Ending Cash"
+  // Cash
   let cashBalance = 0;
-  const cashLines = sections['Cash Report'] || [];
-  for (const line of cashLines) {
+  for (const line of (sections['Cash Report'] || [])) {
     if (line.includes('Ending Cash') && line.includes('Base Currency Summary')) {
       const cols = parseCsvLine(line);
-      const amount = parseFloat(cols[3]);
-      if (!isNaN(amount)) { cashBalance = amount; break; }
+      cashBalance = parseFloat(cols[3]) || 0;
+      break;
     }
   }
 
-  // Total deposited — "Total in USD"
+  // Deposits
   let totalDeposited = 0;
-  const depositLines = sections['Deposits & Withdrawals'] || [];
-  for (const line of depositLines) {
+  const depositRows = [];
+  for (const line of (sections['Deposits & Withdrawals'] || [])) {
     if (line.includes('Total in USD')) {
       const cols = parseCsvLine(line);
-      const amount = parseFloat(cols[cols.length - 1]);
-      if (!isNaN(amount) && amount > 0) { totalDeposited = amount; break; }
+      totalDeposited = parseFloat(cols[cols.length - 1]) || 0;
+    }
+    if (line.startsWith('Data,') && !line.includes('Total')) {
+      const cols = parseCsvLine(line).slice(1);
+      // Currency, Date, Description, Amount
+      if (cols[0] !== 'Total in USD' && cols[1] && cols[3]) {
+        const amt = parseFloat(cols[3]);
+        if (!isNaN(amt) && cols[0] !== 'Total') {
+          depositRows.push({ date: cols[1], currency: cols[0], amount: amt });
+        }
+      }
     }
   }
 
-  return { positions, trades, cashBalance, totalDeposited, periodEnd };
+  return { positions, trades, cashBalance, totalDeposited, depositRows, periodStart, periodEnd, navStart, navEnd, twr };
 }
 
 export function extractPositions(rawPositions) {
   return rawPositions
-    .filter(row => row['Symbol'] && row['Symbol'] !== 'Symbol' && row['DataDiscriminator'] === 'Summary')
-    .map(row => ({
-      symbol: row['Symbol']?.trim(),
-      quantity: parseFloat(row['Quantity'] || 0),
-      avgCost: parseFloat(row['Cost Price'] || 0),
-      marketValue: parseFloat(row['Value'] || 0),
-      unrealizedPnl: parseFloat(row['Unrealized P/L'] || 0),
-      currency: row['Currency']?.trim() || 'USD',
-      assetClass: row['Asset Category'] || 'Stocks',
+    .filter(r => r['Symbol'] && r['Symbol'] !== 'Symbol' && r['DataDiscriminator'] === 'Summary')
+    .map(r => ({
+      symbol: r['Symbol']?.trim(),
+      quantity: parseFloat(r['Quantity'] || 0),
+      avgCost: parseFloat(r['Cost Price'] || 0),
+      marketValue: parseFloat(r['Value'] || 0),
+      unrealizedPnl: parseFloat(r['Unrealized P/L'] || 0),
+      currency: r['Currency']?.trim() || 'USD',
+      assetClass: r['Asset Category'] || 'Stocks',
     }))
     .filter(p => p.symbol && p.quantity !== 0);
 }
 
 export function extractTrades(rawTrades) {
   return rawTrades
-    .filter(row => row['Symbol'] && row['Symbol'] !== 'Symbol' && row['Date/Time'])
-    .map(row => ({
-      symbol: row['Symbol']?.trim(),
-      dateTime: row['Date/Time']?.trim(),
-      quantity: parseFloat(row['Quantity'] || 0),
-      price: parseFloat(row['T. Price'] || row['Price'] || 0),
-      proceeds: parseFloat(row['Proceeds'] || 0),
-      commFee: parseFloat(row['Comm/Fee'] || row['Commission'] || 0),
-      realizedPnl: parseFloat(row['Realized P&L'] || 0),
-      currency: row['Currency']?.trim() || 'USD',
-      buySell: row['Buy/Sell']?.trim() || (parseFloat(row['Quantity']) > 0 ? 'BUY' : 'SELL'),
+    .filter(r => r['Symbol'] && r['Symbol'] !== 'Symbol' && r['Date/Time'])
+    .map(r => ({
+      symbol: r['Symbol']?.trim(),
+      dateTime: r['Date/Time']?.trim(),
+      quantity: parseFloat(r['Quantity'] || 0),
+      price: parseFloat(r['T. Price'] || r['Price'] || 0),
+      proceeds: parseFloat(r['Proceeds'] || 0),
+      commFee: parseFloat(r['Comm/Fee'] || 0),
+      realizedPnl: parseFloat(r['Realized P&L'] || 0),
+      currency: r['Currency']?.trim() || 'USD',
+      buySell: r['Buy/Sell']?.trim() || (parseFloat(r['Quantity']) > 0 ? 'BUY' : 'SELL'),
     }))
     .sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
 }
