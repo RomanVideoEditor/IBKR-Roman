@@ -11,6 +11,7 @@ export default function Dashboard() {
   const [tab, setTab] = useState('positions');
   const [portfolio, setPortfolio] = useState(null);
   const [trades, setTrades] = useState([]);
+  const [totalDeposited, setTotalDeposited] = useState(0);
   const [uploadedAt, setUploadedAt] = useState(null);
   const [loadingData, setLoadingData] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
@@ -24,6 +25,7 @@ export default function Dashboard() {
         ]);
         if (p) {
           setPortfolio(p.positions);
+          setTotalDeposited(p.totalDeposited || 0);
           setUploadedAt(p.uploadedAt);
         }
         if (t) setTrades(t.trades || []);
@@ -36,9 +38,10 @@ export default function Dashboard() {
     load();
   }, [user.uid]);
 
-  const handleUploaded = ({ positions, trades, uploadedAt }) => {
+  const handleUploaded = ({ positions, trades, totalDeposited, uploadedAt }) => {
     setPortfolio(positions);
     setTrades(trades);
+    setTotalDeposited(totalDeposited || 0);
     setUploadedAt(uploadedAt.toISOString());
     setShowUpload(false);
   };
@@ -94,7 +97,9 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                {tab === 'positions' && <PositionsTable positions={portfolio} />}
+                {tab === 'positions' && (
+                  <PositionsTable positions={portfolio} totalDeposited={totalDeposited} />
+                )}
                 {tab === 'trades' && <TradesHistory trades={trades} />}
               </>
             )}

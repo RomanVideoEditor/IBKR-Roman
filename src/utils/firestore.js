@@ -1,17 +1,38 @@
 // src/utils/firestore.js
 import { db } from '../firebase';
-import {
-  doc, setDoc, getDoc, collection, getDocs, query, orderBy, limit
-} from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
-export async function savePortfolio(userId, { positions, trades, uploadedAt }) {
-  const ref = doc(db, 'users', userId, 'portfolios', 'current');
-  await setDoc(ref, { positions, uploadedAt: uploadedAt.toISOString() });
+export async function savePortfolio(userId, { positions, trades, totalDeposited, uploadedAt }) {
+  // Positions: always overwrite with latest
+  const posRef = doc(db, 'users', userId, 'portfolios', 'current');
+  await setDoc(posRef, { 
+    positions, 
+    totalDeposited: totalDeposited || 0,
+    uploadedAt: uploadedAt.toISOString() 
+  });
 
-  // Save trades snapshot
+  // Trades: merge with existing (no duplicates)
   if (trades && trades.length > 0) {
     const tradesRef = doc(db, 'users', userId, 'portfolios', 'trades');
-    await setDoc(tradesRef, { trades, uploadedAt: uploadedAt.toISOString() });
+    const existing = await getDoc(tradesRef);
+    
+    let allTrades = trades;
+    if (existing.exists()) {
+      const existingTrades = existing.data().trades || [];
+      const existingKeys = new Set(
+        existingTrades.map(t => `${t.symbol}_${t.dateTime}_${t.quantity}`)
+      );
+      const newTrades = trades.filter(
+        t => !existingKeys.has(`${t.symbol}_${t.dateTime}_${t.quantity}`)
+      );
+      allTrades = [...existingTrades, ...newTrades]
+        .sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
+    }
+
+    await setDoc(tradesRef, { 
+      trades: allTrades, 
+      updatedAt: uploadedAt.toISOString() 
+    });
   }
 }
 

@@ -60,9 +60,9 @@ export function parseIBKRCsv(csvText) {
 
   const positions = parseCsvToObjects(sections['Open Positions'] || sections['Positions'] || []);
   const trades = parseCsvToObjects(sections['Trades'] || []);
-  const cashReport = parseCsvToObjects(sections['Cash Report'] || sections['Account Information'] || []);
+  const deposits = parseCsvToObjects(sections['Deposits & Withdrawals'] || sections['Cash Transactions'] || []);
 
-  return { positions, trades, cashReport };
+  return { positions, trades, deposits };
 }
 
 export function extractPositions(rawPositions) {
@@ -95,4 +95,16 @@ export function extractTrades(rawTrades) {
       buySell: row['Buy/Sell']?.trim() || (parseFloat(row['Quantity']) > 0 ? 'BUY' : 'SELL'),
     }))
     .sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
+}
+
+export function extractTotalDeposited(rawDeposits) {
+  return rawDeposits
+    .filter(row => {
+      const desc = (row['Description'] || row['Type'] || '').toLowerCase();
+      return desc.includes('deposit') || desc.includes('transfer') || desc.includes('wire');
+    })
+    .reduce((sum, row) => {
+      const amount = parseFloat(row['Amount'] || 0);
+      return sum + (amount > 0 ? amount : 0);
+    }, 0);
 }

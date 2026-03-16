@@ -1,6 +1,6 @@
 // src/components/CsvUpload.jsx
 import { useState, useRef } from 'react';
-import { parseIBKRCsv, extractPositions, extractTrades } from '../utils/parseIBKR';
+import { parseIBKRCsv, extractPositions, extractTrades, extractTotalDeposited } from '../utils/parseIBKR';
 import { savePortfolio } from '../utils/firestore';
 import { useAuth } from '../hooks/useAuth';
 
@@ -20,9 +20,10 @@ export default function CsvUpload({ onUploaded }) {
     setError('');
     try {
       const text = await file.text();
-      const { positions: rawPos, trades: rawTrades } = parseIBKRCsv(text);
+      const { positions: rawPos, trades: rawTrades, deposits: rawDeposits } = parseIBKRCsv(text);
       const positions = extractPositions(rawPos);
       const trades = extractTrades(rawTrades);
+      const totalDeposited = extractTotalDeposited(rawDeposits);
 
       if (positions.length === 0) {
         setError('No positions found. Make sure this is an IBKR Activity Statement CSV.');
@@ -32,9 +33,9 @@ export default function CsvUpload({ onUploaded }) {
 
       setStatus('Saving to cloud...');
       const uploadedAt = new Date();
-      await savePortfolio(user.uid, { positions, trades, uploadedAt });
+      await savePortfolio(user.uid, { positions, trades, totalDeposited, uploadedAt });
       setStatus(`✓ ${positions.length} positions loaded`);
-      onUploaded({ positions, trades, uploadedAt });
+      onUploaded({ positions, trades, totalDeposited, uploadedAt });
     } catch (err) {
       setError('Failed to parse file: ' + err.message);
       setStatus('');
@@ -60,9 +61,7 @@ export default function CsvUpload({ onUploaded }) {
         onChange={e => processFile(e.target.files[0])}
       />
       <div className="upload-icon">↑</div>
-      <div className="upload-title">
-        {status || 'Upload IBKR Statement'}
-      </div>
+      <div className="upload-title">{status || 'Upload IBKR Statement'}</div>
       <div className="upload-sub">
         {error
           ? <span className="error-msg">{error}</span>
