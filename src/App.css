@@ -273,3 +273,31 @@ form input::placeholder { color: var(--text3); }
 /* Sortable headers */
 .positions-table th { cursor: pointer; user-select: none; }
 .positions-table th:hover { color: var(--text); }
+
+/* Market Status Bar */
+.market-status-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px; margin-bottom: 16px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 13px;
+}
+.market-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+.market-label { font-weight: 600; }
+.market-countdown {
+  margin-left: auto; font-family: var(--font-mono);
+  font-size: 13px; color: var(--text2);
+}
+
+/* Weight column */
+.weight-cell { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.weight-bar-bg {
+  width: 60px; height: 3px;
+  background: var(--border2); border-radius: 2px;
+}
+.weight-bar-fill {
+  height: 100%; background: var(--accent);
+  border-radius: 2px; transition: width 0.3s;
+}

@@ -20,7 +20,7 @@ export default function CsvUpload({ onUploaded }) {
     setError('');
     try {
       const text = await file.text();
-      const { positions: rawPos, trades: rawTrades, totalDeposited, periodEnd } = parseIBKRCsv(text);
+      const { positions: rawPos, trades: rawTrades, cashBalance, totalDeposited, periodEnd } = parseIBKRCsv(text);
       const positions = extractPositions(rawPos);
       const trades = extractTrades(rawTrades);
 
@@ -30,29 +30,35 @@ export default function CsvUpload({ onUploaded }) {
         return;
       }
 
-      setStatus('Saving to cloud...');
+      setStatus('Saving...');
       const uploadedAt = new Date();
-      const result = await savePortfolio(user.uid, { positions, trades, totalDeposited, periodEnd, uploadedAt });
-      
-      const msg = result.isNewer 
-        ? `✓ ${positions.length} positions updated` 
-        : `✓ Trades merged (positions unchanged — older file)`;
+      const result = await savePortfolio(user.uid, { positions, trades, cashBalance, totalDeposited, periodEnd, uploadedAt });
+      const msg = result.isNewer ? `✓ ${positions.length} positions updated` : `✓ Trades merged`;
       setStatus(msg);
-      onUploaded({ positions, trades, totalDeposited: result.totalDepositedAll, uploadedAt });
+      onUploaded({ positions, cashBalance, totalDeposited: result.totalDepositedAll, uploadedAt });
     } catch (err) {
-      setError('Failed to parse file: ' + err.message);
+      setError('Error: ' + err.message);
       setStatus('');
     }
   };
 
-  const onDrop = (e) => {
-    e.preventDefault();
-    setDragging(false);
-    processFile(e.dataTransfer.files[0]);
-  };
+  const onDrop = (e) => { e.preventDefault(); setDragging(false); processFile(e.dataTransfer.files[0]); };
 
   return (
     <div
       className={`csv-upload ${dragging ? 'dragging' : ''}`}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDraggi
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
+      onClick={() => inputRef.current?.click()}
+    >
+      <input ref={inputRef} type="file" accept=".csv" style={{ display: 'none' }}
+        onChange={e => processFile(e.target.files[0])} />
+      <div className="upload-icon">↑</div>
+      <div className="upload-title">{status || 'Upload IBKR Statement'}</div>
+      <div className="upload-sub">
+        {error ? <span className="error-msg">{error}</span> : 'Drag & drop or click'}
+      </div>
+    </div>
+  );
+}

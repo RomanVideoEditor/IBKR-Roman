@@ -6,14 +6,9 @@ function parseCsvLine(line) {
   let inQuotes = false;
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
-    if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
-      result.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
+    if (char === '"') { inQuotes = !inQuotes; }
+    else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+    else { current += char; }
   }
   result.push(current.trim());
   return result;
@@ -47,56 +42,45 @@ export function parseIBKRCsv(csvText) {
     });
   }
 
-  // Extract period end date from "January 1, 2026 - March 13, 2026"
+  // Period end date
   let periodEnd = null;
-  const periodLines = sections['Statement'] || [];
-  for (const line of periodLines) {
+  const stmtLines = sections['Statement'] || [];
+  for (const line of stmtLines) {
     if (line.includes('Period')) {
-      const match = line.match(/(\w+ \d+, \d{4})\s*$/);
-      if (match) {
-        periodEnd = new Date(match[1]);
-      }
+      const match = line.match(/(\w+ \d+, \d{4})\s*["']?\s*$/);
+      if (match) periodEnd = new Date(match[1]);
     }
   }
 
+  // Positions
   const positions = getDataRows(sections['Open Positions']);
+
+  // Trades
   const trades = getDataRows(sections['Trades']);
 
-  // Deposits: sum only positive USD amounts, deduplicate by date+amount
-  const depositLines = sections['Deposits & Withdrawals'] || [];
-  let totalDeposited = 0;
-  const depositKeys = new Set();
-  for (const line of depositLines) {
-    if (line.startsWith('Data,')) {
-      const cols = parseCsvLine(line).slice(1);
-      // cols: Currency, Settle Date, Description, Amount
-      const currency = cols[0];
-      const date = cols[1];
+  // Cash — from Cash Report "Ending Cash"
+  let cashBalance = 0;
+  const cashLines = sections['Cash Report'] || [];
+  for (const line of cashLines) {
+    if (line.includes('Ending Cash') && line.includes('Base Currency Summary')) {
+      const cols = parseCsvLine(line);
       const amount = parseFloat(cols[3]);
-      if (currency === 'Total in USD' || (date && amount > 0)) {
-        if (currency === 'Total in USD') {
-          // This is the summary row — use it directly
-          totalDeposited = parseFloat(cols[cols.length - 1]) || 0;
-          break;
-        }
-      }
-    }
-  }
-  // Fallback: find "Total in USD" row
-  if (totalDeposited === 0) {
-    for (const line of depositLines) {
-      if (line.includes('Total in USD')) {
-        const cols = parseCsvLine(line);
-        const amount = parseFloat(cols[cols.length - 1]);
-        if (!isNaN(amount) && amount > 0) {
-          totalDeposited = amount;
-          break;
-        }
-      }
+      if (!isNaN(amount)) { cashBalance = amount; break; }
     }
   }
 
-  return { positions, trades, totalDeposited, periodEnd };
+  // Total deposited — "Total in USD"
+  let totalDeposited = 0;
+  const depositLines = sections['Deposits & Withdrawals'] || [];
+  for (const line of depositLines) {
+    if (line.includes('Total in USD')) {
+      const cols = parseCsvLine(line);
+      const amount = parseFloat(cols[cols.length - 1]);
+      if (!isNaN(amount) && amount > 0) { totalDeposited = amount; break; }
+    }
+  }
+
+  return { positions, trades, cashBalance, totalDeposited, periodEnd };
 }
 
 export function extractPositions(rawPositions) {
