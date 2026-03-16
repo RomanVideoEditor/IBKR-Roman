@@ -55,21 +55,4 @@ export default function CsvUpload({ onUploaded }) {
     <div
       className={`csv-upload ${dragging ? 'dragging' : ''}`}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={onDrop}
-      onClick={() => inputRef.current?.click()}
-    >
-      <input
-        ref={inputRef} type="file" accept=".csv" style={{ display: 'none' }}
-        onChange={e => processFile(e.target.files[0])}
-      />
-      <div className="upload-icon">↑</div>
-      <div className="upload-title">{status || 'Upload IBKR Statement'}</div>
-      <div className="upload-sub">
-        {error
-          ? <span className="error-msg">{error}</span>
-          : 'Drag & drop or click — כל סדר העלאה תקין'}
-      </div>
-    </div>
-  );
-}
+      onDragLeave={() => setDraggi
