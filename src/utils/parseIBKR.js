@@ -1,5 +1,37 @@
 // src/utils/parseIBKR.js
-const Papa = require('papaparse');
+
+function parseCsvLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function parseCsvToObjects(lines) {
+  if (!lines || lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]);
+  const result = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const values = parseCsvLine(lines[i]);
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = values[idx] || ''; });
+    result.push(obj);
+  }
+  return result;
+}
 
 export function parseIBKRCsv(csvText) {
   const sections = {};
@@ -8,9 +40,8 @@ export function parseIBKRCsv(csvText) {
   let currentLines = [];
 
   for (const line of lines) {
-    const cols = line.split(',');
-    const header = cols[0]?.trim();
-
+    const firstComma = line.indexOf(',');
+    const header = firstComma >= 0 ? line.substring(0, firstComma).trim() : line.trim();
     if (!header) continue;
 
     if (header !== currentSection) {
@@ -18,27 +49,20 @@ export function parseIBKRCsv(csvText) {
         sections[currentSection] = currentLines;
       }
       currentSection = header;
-      currentLines = [line];
+      currentLines = [line.substring(firstComma + 1)];
     } else {
-      currentLines.push(line);
+      currentLines.push(line.substring(firstComma + 1));
     }
   }
   if (currentSection && currentLines.length > 1) {
     sections[currentSection] = currentLines;
   }
 
-  const positions = parseSection(sections['Open Positions'] || sections['Positions']);
-  const trades = parseSection(sections['Trades']);
-  const cashReport = parseSection(sections['Cash Report'] || sections['Account Information']);
+  const positions = parseCsvToObjects(sections['Open Positions'] || sections['Positions'] || []);
+  const trades = parseCsvToObjects(sections['Trades'] || []);
+  const cashReport = parseCsvToObjects(sections['Cash Report'] || sections['Account Information'] || []);
 
   return { positions, trades, cashReport };
-}
-
-function parseSection(lines) {
-  if (!lines || lines.length < 2) return [];
-  const csv = lines.join('\n');
-  const result = Papa.parse(csv, { header: true, skipEmptyLines: true });
-  return result.data || [];
 }
 
 export function extractPositions(rawPositions) {
