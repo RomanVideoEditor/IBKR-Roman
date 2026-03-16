@@ -323,3 +323,33 @@ form input::placeholder { color: var(--text3); }
 
 /* Cash row */
 .cash-row td { opacity: 0.6; }
+
+/* Performance page */
+.perf-container {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px;
+}
+.perf-empty {
+  text-align: center; padding: 80px 20px;
+}
+.perf-stats-row {
+  display: flex; gap: 32px; margin-bottom: 24px; flex-wrap: wrap;
+}
+.perf-stat { display: flex; flex-direction: column; gap: 4px; }
+.perf-stat-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; }
+.perf-stat-value { font-family: var(--font-mono); font-size: 18px; font-weight: 700; }
+.perf-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
+}
+.perf-view-tabs { display: flex; gap: 4px; background: var(--bg3); border-radius: 8px; padding: 4px; border: 1px solid var(--border); }
+.view-tab {
+  padding: 6px 16px; border-radius: 6px; border: none;
+  background: none; color: var(--text2); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+}
+.view-tab.active { background: var(--accent); color: #fff; }
+.chart-tooltip {
+  background: var(--bg2); border: 1px solid var(--border2);
+  padding: 12px 16px; border-radius: 8px; font-size: 13px; min-width: 160px;
+}
+.chart-tooltip-date { color: var(--text3); font-size: 11px; margin-bottom: 8px; font-family: var(--font-mono); }
