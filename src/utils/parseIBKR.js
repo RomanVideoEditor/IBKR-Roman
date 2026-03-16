@@ -15,34 +15,75 @@ function parseCsvLine(line) {
 }
 
 export function parseIBKRCsv(csvText) {
-  const sections = {};
-  for (const line of csvText.split('\n')) {
-    const fc = line.indexOf(',');
-    if (fc < 0) continue;
-    const name = line.substring(0, fc).trim();
-    const rest = line.substring(fc + 1);
-    if (!name) continue;
-    if (!sections[name]) sections[name] = [];
-    sections[name].push(rest);
-  }
+  const lines = csvText.split('\n').map(l => l.replace(/^\uFEFF/, '').trimEnd());
 
-  function getDataRows(lines) {
-    if (!lines) return [];
-    const header = lines.find(l => l.startsWith('Header,'));
-    if (!header) return [];
-    const cols = parseCsvLine(header).slice(1);
-    return lines.filter(l => l.startsWith('Data,')).map(row => {
-      const vals = parseCsvLine(row).slice(1);
-      const obj = {};
-      cols.forEach((h, i) => { obj[h] = vals[i] || ''; });
-      return obj;
+  // Positions — "Open Positions,Data,Summary,Stocks,USD,SYMBOL,qty,mult,costPrice,costBasis,closePrice,value,unrealizedPL"
+  const positions = [];
+  for (const line of lines) {
+    if (!line.startsWith('Open Positions,Data,Summary,Stocks')) continue;
+    const cols = parseCsvLine(line);
+    // cols: [0]Open Positions [1]Data [2]Summary [3]Stocks [4]USD [5]Symbol [6]Qty [7]Mult [8]CostPrice [9]CostBasis [10]ClosePrice [11]Value [12]UnrealizedPL
+    const symbol = cols[5]?.trim();
+    const quantity = parseFloat(cols[6]) || 0;
+    if (!symbol || quantity === 0) continue;
+    positions.push({
+      symbol,
+      quantity,
+      avgCost: parseFloat(cols[8]) || 0,
+      marketValue: parseFloat(cols[11]) || 0,
+      unrealizedPnl: parseFloat(cols[12]) || 0,
+      currency: cols[4]?.trim() || 'USD',
+      assetClass: 'Stocks',
     });
   }
 
-  // Period dates
-  let periodStart = null, periodEnd = null;
-  for (const line of (sections['Statement'] || [])) {
-    if (line.includes('Period')) {
+  // Trades — "Trades,Data,Order,Stocks,USD,SYMBOL,DATE,..."
+  const trades = [];
+  for (const line of lines) {
+    if (!line.startsWith('Trades,Data,Order')) continue;
+    const cols = parseCsvLine(line);
+    // cols: [0]Trades [1]Data [2]Order [3]Stocks [4]USD [5]Symbol [6]Date/Time [7]Qty [8]T.Price [9]C.Price [10]Proceeds [11]CommFee [12]Basis [13]RealizedPL [14]MTM [15]Code
+    const symbol = cols[5]?.trim();
+    const dateTime = cols[6]?.trim();
+    if (!symbol || !dateTime) continue;
+    trades.push({
+      symbol,
+      dateTime,
+      quantity: parseFloat(cols[7]) || 0,
+      price: parseFloat(cols[8]) || 0,
+      proceeds: parseFloat(cols[10]) || 0,
+      commFee: parseFloat(cols[11]) || 0,
+      realizedPnl: parseFloat(cols[13]) || 0,
+      currency: cols[4]?.trim() || 'USD',
+      buySell: parseFloat(cols[7]) > 0 ? 'BUY' : 'SELL',
+    });
+  }
+  trades.sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
+
+  // Cash — "Cash Report,Data,Ending Cash,Base Currency Summary,AMOUNT,..."
+  let cashBalance = 0;
+  for (const line of lines) {
+    if (line.startsWith('Cash Report,Data,Ending Cash,Base Currency Summary')) {
+      const cols = parseCsvLine(line);
+      cashBalance = parseFloat(cols[4]) || 0;
+      break;
+    }
+  }
+
+  // Deposits — "Deposits & Withdrawals,Data,Total in USD,,,AMOUNT"
+  let totalDeposited = 0;
+  for (const line of lines) {
+    if (line.startsWith('Deposits & Withdrawals,Data,Total in USD')) {
+      const cols = parseCsvLine(line);
+      totalDeposited = parseFloat(cols[cols.length - 1]) || 0;
+      break;
+    }
+  }
+
+  // Period end date from Statement
+  let periodEnd = null, periodStart = null;
+  for (const line of lines) {
+    if (line.startsWith('Statement,Data,Period')) {
       const matches = [...line.matchAll(/(\w+ \d+, \d{4})/g)];
       if (matches.length >= 2) {
         periodStart = new Date(matches[0][1]);
@@ -50,91 +91,23 @@ export function parseIBKRCsv(csvText) {
       } else if (matches.length === 1) {
         periodEnd = new Date(matches[0][1]);
       }
-    }
-  }
-
-  // NAV data
-  let navStart = 0, navEnd = 0, twr = 0;
-  for (const line of (sections['Net Asset Value'] || [])) {
-    if (line.includes('Total') && line.startsWith('Data,')) {
-      const cols = parseCsvLine(line).slice(1);
-      navStart = parseFloat(cols[1]) || 0;
-      navEnd = parseFloat(cols[3]) || 0;
-    }
-    if (line.startsWith('Data,') && line.includes('%')) {
-      const cols = parseCsvLine(line).slice(1);
-      const twrStr = cols[0] || cols[1] || '';
-      twr = parseFloat(twrStr.replace('%', '')) || 0;
-    }
-  }
-
-  // Positions
-  const positions = getDataRows(sections['Open Positions']);
-
-  // Trades
-  const trades = getDataRows(sections['Trades']);
-
-  // Cash
-  let cashBalance = 0;
-  for (const line of (sections['Cash Report'] || [])) {
-    if (line.includes('Ending Cash') && line.includes('Base Currency Summary')) {
-      const cols = parseCsvLine(line);
-      cashBalance = parseFloat(cols[3]) || 0;
       break;
     }
   }
 
-  // Deposits
-  let totalDeposited = 0;
-  const depositRows = [];
-  for (const line of (sections['Deposits & Withdrawals'] || [])) {
-    if (line.includes('Total in USD')) {
+  // NAV
+  let navStart = 0, navEnd = 0, twr = 0;
+  for (const line of lines) {
+    if (line.startsWith('Net Asset Value,Data,Total,')) {
       const cols = parseCsvLine(line);
-      totalDeposited = parseFloat(cols[cols.length - 1]) || 0;
+      navStart = parseFloat(cols[2]) || 0;
+      navEnd = parseFloat(cols[4]) || 0;
     }
-    if (line.startsWith('Data,') && !line.includes('Total')) {
-      const cols = parseCsvLine(line).slice(1);
-      // Currency, Date, Description, Amount
-      if (cols[0] !== 'Total in USD' && cols[1] && cols[3]) {
-        const amt = parseFloat(cols[3]);
-        if (!isNaN(amt) && cols[0] !== 'Total') {
-          depositRows.push({ date: cols[1], currency: cols[0], amount: amt });
-        }
-      }
+    if (line.startsWith('Net Asset Value,Data,') && line.includes('%') && !line.includes('Total')) {
+      const cols = parseCsvLine(line);
+      twr = parseFloat((cols[2] || cols[1] || '').replace('%','')) || 0;
     }
   }
 
-  return { positions, trades, cashBalance, totalDeposited, depositRows, periodStart, periodEnd, navStart, navEnd, twr };
-}
-
-export function extractPositions(rawPositions) {
-  return rawPositions
-    .filter(r => r['Symbol'] && r['Symbol'] !== 'Symbol' && r['DataDiscriminator'] === 'Summary')
-    .map(r => ({
-      symbol: r['Symbol']?.trim(),
-      quantity: parseFloat(r['Quantity'] || 0),
-      avgCost: parseFloat(r['Cost Price'] || 0),
-      marketValue: parseFloat(r['Value'] || 0),
-      unrealizedPnl: parseFloat(r['Unrealized P/L'] || 0),
-      currency: r['Currency']?.trim() || 'USD',
-      assetClass: r['Asset Category'] || 'Stocks',
-    }))
-    .filter(p => p.symbol && p.quantity !== 0);
-}
-
-export function extractTrades(rawTrades) {
-  return rawTrades
-    .filter(r => r['Symbol'] && r['Symbol'] !== 'Symbol' && r['Date/Time'])
-    .map(r => ({
-      symbol: r['Symbol']?.trim(),
-      dateTime: r['Date/Time']?.trim(),
-      quantity: parseFloat(r['Quantity'] || 0),
-      price: parseFloat(r['T. Price'] || r['Price'] || 0),
-      proceeds: parseFloat(r['Proceeds'] || 0),
-      commFee: parseFloat(r['Comm/Fee'] || 0),
-      realizedPnl: parseFloat(r['Realized P&L'] || 0),
-      currency: r['Currency']?.trim() || 'USD',
-      buySell: r['Buy/Sell']?.trim() || (parseFloat(r['Quantity']) > 0 ? 'BUY' : 'SELL'),
-    }))
-    .sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
+  return { positions, trades, cashBalance, totalDeposited, periodStart, periodEnd, navStart, navEnd, twr };
 }
