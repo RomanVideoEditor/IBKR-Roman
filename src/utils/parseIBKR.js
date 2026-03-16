@@ -1,5 +1,5 @@
 // src/utils/parseIBKR.js
-import Papa from 'papaparse';
+const Papa = require('papaparse');
 
 export function parseIBKRCsv(csvText) {
   const sections = {};
